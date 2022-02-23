@@ -1,3 +1,5 @@
+const randomstring = require("randomstring")
+
 class Player
 {
 	constructor (_socket, _username)
@@ -70,28 +72,40 @@ class RoomManager
 	}
 }
 
+const isValidPseudo = (pseudo) => {
+	return (2 < pseudo.length && pseudo.length < 10) === true
+}
+
 module.exports = (async function(fastify, opts) {
 	const roomManager = new RoomManager()
 
+	fastify.post('/', async (req, reply) => {
+		const { pseudo } = JSON.parse(req.body)
+
+		if (!isValidPseudo(pseudo))
+			return reply.code(400).send({ error: "Pseudo must be between 2 and 10 character"})
+
+		const roomID = randomstring.generate(4).toUpperCase()
+
+		while (roomManager.rooms.find(room => room.roomID === roomID))
+			roomID = randomstring.generate(4).toUpperCase()
+		
+		const err = roomManager.addRoom(roomID)
+
+		if (err)
+			reply.code(400).send({ error: err.error })
+		
+		return { roomID }
+	})
+
 	fastify.io.on("connection", (socket) => {
-		socket.on("room:create", (username) => {
-			const roomID = "667"
-			
-			const err = roomManager.addRoom(roomID)
-
-			if (err)
-				return console.error("An error has occur creating the room : ", err.error)
-			
-			roomManager.joinRoom(roomID, socket, username)
-		})
-
 		socket.on("room:join", (roomID, username) => {
 			const err = roomManager.joinRoom(roomID, socket, username)
-
 			if (err)
 				return console.error("An error has occured joining the room : ", err.error)
-
-			socket.emit("room:join:sucess")
+			
+			socket.join(roomID)
+			socket.emit("room:join:sucess", roomID)
 		})
 
 		socket.on("room:log", () => {

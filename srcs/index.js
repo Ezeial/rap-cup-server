@@ -29,11 +29,11 @@ server.register(fastifySocket, {
 	}
 })
 
-server.register(roomInstance)
-
 /*
-**	REGISTERING ROUTES HANDLER
+**	ROOM HUB
 */
+
+server.register(roomInstance, { prefix: '/room'} )
 
 /*
 **	LAUNCH THE SERVER
