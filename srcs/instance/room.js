@@ -2,16 +2,49 @@ const randomstring = require("randomstring")
 
 class Player
 {
+	teamNumber = -1
+
 	constructor (_socket, _username)
 	{
 		this.socket = _socket
 		this.username = _username
 	}
 
-	log()
+	setTeamNumber(newTeamNumber)
 	{
-		console.log("USERNAME :", this.username, "\n")
-		console.log("SOCKET ID:", this.socket.id, "\n")
+		this.teamNumber = newTeamNumber
+	}
+
+	computeData()
+	{
+		return { username: this.username, teamNumber: this.teamNumber }
+	}
+}
+
+class Team
+{
+	teamName = ''
+	teamMaxSize = 2
+	players = []
+
+	constructor(_number)
+	{
+		this.number = _number
+	}
+
+	setName(newName)
+	{
+		this.teamName = newName
+	}
+
+	joinTeam(player)
+	{
+		player.setTeamNumber(this.number)	
+	}
+
+	computeData()
+	{
+		return { teamNumber: this.number, teamName: this.teamName }
 	}
 }
 
@@ -19,6 +52,8 @@ class Room
 {
 	maxSize = 4
 	players = []
+	teams = [new Team(0), new Team(1)]
+
 	constructor (_roomID)
 	{
 		this.roomID = _roomID
@@ -31,15 +66,12 @@ class Room
 		this.players.push(new Player(socket, username))	
 	}
 
-	log()
+	computeData()
 	{
-		console.log("==========================")
-		console.log("ROOM : ", this.roomID, "\n")
-		console.log("Player currently in :\n")
-		this.players.forEach(player => {
-			player.log()
-		})	
-		console.log("==========================")
+		return {
+			players: this.players.map(player => player.computeData()),
+			teams: this.teams.map(team => team.computeData())
+		}
 	}
 }
 
@@ -63,7 +95,10 @@ class RoomManager
 
 	get(roomID)
 	{
-		return this.rooms.find((room) => room.roomID === roomID)
+		const room = this.rooms.find((room) => room.roomID === roomID)
+		if (!room)
+			return { error: "This room doesn't exist" }
+		return room
 	}
 
 	log()
@@ -98,6 +133,20 @@ module.exports = (async function(fastify, opts) {
 		return { roomID }
 	})
 
+	fastify.put('/', async (req, reply) => {
+		const { pseudo, roomID } = JSON.parse(req.body)
+
+		if (!isValidPseudo(pseudo))
+			return reply.code(400).send({ error: "Pseudo must be between 2 and 10 character"})
+
+		const room = roomManager.get(roomID)
+		
+		if (room.error)
+			return reply.code(400).send({ error: res.error })
+		
+		return { roomID }
+	})
+
 	fastify.io.on("connection", (socket) => {
 		socket.on("room:join", (roomID, username) => {
 			const err = roomManager.joinRoom(roomID, socket, username)
@@ -108,8 +157,36 @@ module.exports = (async function(fastify, opts) {
 			socket.emit("room:join:sucess", roomID)
 		})
 
-		socket.on("room:log", () => {
-			roomManager.log()
+		socket.on("room:polldata", (roomID) => {
+			const room = roomManager.get(roomID)
+			if (room.error) 
+				return socket.send("room:error", room.error)
+			socket.emit("room:senddata", room.computeData())
+		})
+
+		socket.on("room:team:rename", (roomID, teamNumber, newName) => {
+			const room = roomManager.get(roomID)
+			if (room.error)
+				return
+			const team = room.teams.find(team => teamNumber === team.number)
+			if (!team)
+				return 
+			team.teamName = newName
+			fastify.io.to(roomID).emit("room:senddata", room.computeData())
+		})
+
+		socket.on("room:team:join", (roomID, username, teamNumber) => {
+			const room = roomManager.get(roomID)
+			if (room.error)
+				return
+			const team = room.teams.find(team => teamNumber === team.number)
+			if (!team)
+				return
+			const player = room.players.find((p) => p.username === username)
+			if (!player)
+				return 
+			team.joinTeam(player)
+			fastify.io.to(roomID).emit("room:senddata", room.computeData())
 		})
 	})
 })
