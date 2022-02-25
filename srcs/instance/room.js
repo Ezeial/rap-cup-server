@@ -155,6 +155,7 @@ module.exports = (async function(fastify, opts) {
 			
 			socket.join(roomID)
 			socket.emit("room:join:sucess", roomID)
+			fastify.io.to(roomID).emit("room:senddata", roomManager.get(roomID).computeData())
 		})
 
 		socket.on("room:polldata", (roomID) => {
